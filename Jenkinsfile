@@ -18,10 +18,10 @@ pipeline {
 
         stage('Check Project Files') {
             steps {
-                bat 'dir'
                 bat 'if not exist index.html exit /b 1'
                 bat 'if not exist Dockerfile exit /b 1'
                 bat 'if not exist deployment.yaml exit /b 1'
+                echo 'All required project files are present.'
             }
         }
 
@@ -35,27 +35,60 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '"%DOCKER_EXE%" build -t %IMAGE_NAME%:%IMAGE_TAG% .'
+                bat '"%DOCKER_EXE%" image inspect %IMAGE_NAME%:%IMAGE_TAG%'
             }
         }
 
-        stage('Test Docker Image') {
+        stage('Push to Docker Hub') {
             steps {
-                bat '"%DOCKER_EXE%" image inspect %IMAGE_NAME%:%IMAGE_TAG%'
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_TOKEN'
+                    )
+                ]) {
+                    bat '''
+                        @echo off
+                        setlocal
+                        echo %DOCKER_TOKEN% | "%DOCKER_EXE%" login --username "%DOCKER_USER%" --password-stdin
+                        if errorlevel 1 exit /b 1
+                        "%DOCKER_EXE%" push %IMAGE_NAME%:%IMAGE_TAG%
+                        if errorlevel 1 exit /b 1
+                        "%DOCKER_EXE%" logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([
+                    file(
+                        credentialsId: 'kubeconfig',
+                        variable: 'KUBECONFIG_FILE'
+                    )
+                ]) {
+                    withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                        bat 'kubectl apply -f deployment.yaml'
+                        bat 'kubectl rollout status deployment/university-lms --timeout=120s'
+                        bat 'kubectl get pods'
+                        bat 'kubectl get services'
+                    }
+                }
             }
         }
     }
 
     post {
         success {
-            echo 'SUCCESS: GitHub checkout, Docker checks, image build, and image validation completed.'
+            echo 'SUCCESS: Image pushed and Kubernetes deployment completed.'
         }
-
         failure {
-            echo 'FAILED: Check Console Output to identify the stage that failed.'
+            echo 'FAILED: Review Console Output for the exact failing stage.'
         }
-
         always {
-            echo 'University Learning Portal pipeline execution finished.'
+            echo 'University Learning Portal pipeline finished.'
         }
     }
 }
