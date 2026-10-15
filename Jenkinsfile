@@ -2,12 +2,15 @@
 pipeline {
     agent any
 
-    environment {
-        DOCKER = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
-        KUBECTL = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
-        IMAGE = 'balaji00002/university-lms-portal'
-        DEPLOYMENT = 'university-lms'
-    }
+    
+environment {
+    DOCKER = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+    KUBECTL = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
+    KUBECONFIG = 'C:\\Users\\BALAJI\\.kube\\config'
+    IMAGE = 'balaji00002/university-lms-portal'
+    DEPLOYMENT = 'university-lms'
+}
+
 
     stages {
         stage('Clone Code') {
@@ -18,13 +21,14 @@ pipeline {
         }
 
         stage('Check Kubernetes') {
-            steps {
-                bat '''
-                    "%KUBECTL%" config get-contexts
-                    "%KUBECTL%" get nodes
-                '''
-            }
-        }
+    steps {
+        bat '''
+            "%KUBECTL%" config get-contexts
+            "%KUBECTL%" config current-context
+            "%KUBECTL%" get nodes
+        '''
+    }
+}
 
         stage('Build Docker Image') {
             steps {
