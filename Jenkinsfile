@@ -42,23 +42,29 @@ environment {
             }
         }
 
-        stage('Push Image') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    )
-                ]) {
-                    bat '''
-                        "%DOCKER%" login -u "%DOCKER_USERNAME%" --password-stdin
-                    ''' 
-                    // Use the safer stdin-based login in the next step below.
-                    bat '"%DOCKER%" push %IMAGE%:v1'
-                }
-            }
+        
+stage('Push Image') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'dockerhub-credentials',
+                usernameVariable: 'DOCKER_USERNAME',
+                passwordVariable: 'DOCKER_PASSWORD'
+            )
+        ]) {
+            bat '''
+                @echo off
+                setlocal
+                <nul set /p "=%DOCKER_PASSWORD%" | "%DOCKER%" login -u "%DOCKER_USERNAME%" --password-stdin
+                if errorlevel 1 exit /b 1
+                "%DOCKER%" push %IMAGE%:v1
+                if errorlevel 1 exit /b 1
+                endlocal
+            '''
         }
+    }
+}
+
 
         stage('Deploy to Kubernetes') {
             steps {
