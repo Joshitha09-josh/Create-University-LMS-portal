@@ -3,11 +3,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: university-lms
-  labels:
-    app: university-lms
 spec:
   replicas: 2
-  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: university-lms
@@ -17,30 +19,28 @@ spec:
         app: university-lms
     spec:
       containers:
-        - name: lms
-          image: balaji00002/university-lms:v1
-          imagePullPolicy: Always
+        - name: university-lms
+          image: balaji00002/university-lms-portal:v1
           ports:
             - containerPort: 80
           readinessProbe:
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - grep -q 'LMS-HEALTHY' /usr/share/nginx/html/index.html
+            initialDelaySeconds: 3
             periodSeconds: 5
+            failureThreshold: 2
           livenessProbe:
-            httpGet:
-              path: /
-              port: 80
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - grep -q 'LMS-HEALTHY' /usr/share/nginx/html/index.html
             initialDelaySeconds: 10
             periodSeconds: 10
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "64Mi"
-            limits:
-              cpu: "500m"
-              memory: "128Mi"
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -51,7 +51,6 @@ spec:
   selector:
     app: university-lms
   ports:
-    - protocol: TCP
-      port: 80
+    - port: 80
       targetPort: 80
-      nodePort: 30080
+      nodePort: 30083
