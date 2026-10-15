@@ -6,23 +6,28 @@ pipeline {
         timestamps()
     }
 
+    parameters {
+        booleanParam(
+            name: 'SIMULATE_FAULTY_RELEASE',
+            defaultValue: false,
+            description: 'Use a deliberately unavailable image to test automatic rollback.'
+        )
+    }
+
     environment {
         DOCKER_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
         KUBECTL_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
-        DOCKER_IMAGE = 'balaji00002/university-lms:v1'
-        DOCKER_CREDENTIALS_ID = 'dockerhub-creds'
-        KUBE_CREDENTIALS_ID = 'kubeconfig'
+        IMAGE_REPO = 'balaji00002/university-lms'
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout and Verify Files') {
             steps {
-                echo 'Checking project files...'
                 bat '''
                     if not exist index.html exit /b 1
                     if not exist Dockerfile exit /b 1
                     if not exist deployment.yaml exit /b 1
-                    echo All required files are present.
+                    echo Required project files are present.
                 '''
             }
         }
@@ -32,7 +37,6 @@ pipeline {
                 bat '''
                     "%DOCKER_EXE%" --version
                     if errorlevel 1 exit /b 1
-
                     "%DOCKER_EXE%" info
                     if errorlevel 1 exit /b 1
                 '''
@@ -42,87 +46,116 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
-                    "%DOCKER_EXE%" build -t "%DOCKER_IMAGE%" .
+                    "%DOCKER_EXE%" build -t "%IMAGE_REPO%:%BUILD_NUMBER%" .
                     if errorlevel 1 exit /b 1
                 '''
             }
         }
 
-        stage('Test Application') {
+        stage('Test Docker Image') {
             steps {
                 bat '''
-                    "%DOCKER_EXE%" run --rm "%DOCKER_IMAGE%" nginx -t
+                    "%DOCKER_EXE%" run --rm "%IMAGE_REPO%:%BUILD_NUMBER%" nginx -t
                     if errorlevel 1 exit /b 1
                 '''
             }
         }
 
         stage('Push to Docker Hub') {
-    steps {
-        withCredentials([
-            usernamePassword(
-                credentialsId: 'dockerhub-creds',
-                usernameVariable: 'DOCKER_USER',
-                passwordVariable: 'DOCKER_PASSWORD'
-            )
-        ]) {
-            script {
-                def secretFile = "${env.WORKSPACE}\\docker-password.tmp"
-                try {
-                    writeFile file: 'docker-password.tmp',
-                              text: env.DOCKER_PASSWORD
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
                     bat '''
-                        "%DOCKER_EXE%" login -u "%DOCKER_USER%" --password-stdin < docker-password.tmp
+                        @echo off
+                        echo %DOCKER_PASSWORD% | "%DOCKER_EXE%" login -u "%DOCKER_USER%" --password-stdin
                         if errorlevel 1 exit /b 1
-                        "%DOCKER_EXE%" push "%DOCKER_IMAGE%"
+                        "%DOCKER_EXE%" push "%IMAGE_REPO%:%BUILD_NUMBER%"
                         if errorlevel 1 exit /b 1
                     '''
-                } finally {
-                    bat 'if exist docker-password.tmp del /f /q docker-password.tmp'
                 }
             }
         }
-    }
-}
 
         stage('Check Kubernetes') {
             steps {
-                bat '''
-                    "%KUBECTL_EXE%" version --client
-                    if errorlevel 1 exit /b 1
-
-                    "%KUBECTL_EXE%" get nodes
-                    if errorlevel 1 exit /b 1
-
-                    "%KUBECTL_EXE%" get deployments
-                    if errorlevel 1 exit /b 1
-                '''
+                withCredentials([
+                    file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')
+                ]) {
+                    bat '''
+                        "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" config current-context
+                        if errorlevel 1 exit /b 1
+                        "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" get nodes
+                        if errorlevel 1 exit /b 1
+                    '''
+                }
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Deploy and Verify or Roll Back') {
             steps {
-                bat '''
-                    "%KUBECTL_EXE%" apply -f deployment.yaml
-                    if errorlevel 1 exit /b 1
+                withCredentials([
+                    file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')
+                ]) {
+                    script {
+                        def stableImage = "${env.IMAGE_REPO}:${env.BUILD_NUMBER}"
+                        def deploymentImage = params.SIMULATE_FAULTY_RELEASE
+                            ? "${env.IMAGE_REPO}:faulty-release-does-not-exist"
+                            : stableImage
 
-                    "%KUBECTL_EXE%" rollout status deployment/university-lms --timeout=120s
-                    if errorlevel 1 exit /b 1
+                        bat '''
+                            "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" apply -f deployment.yaml
+                            if errorlevel 1 exit /b 1
+                        '''
 
-                    "%KUBECTL_EXE%" get pods
-                    "%KUBECTL_EXE%" get services
-                '''
+                        bat """
+                            "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" set image deployment/university-lms lms=${deploymentImage}
+                            if errorlevel 1 exit /b 1
+                        """
+
+                        try {
+                            bat '''
+                                "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" rollout status deployment/university-lms --timeout=90s
+                                if errorlevel 1 exit /b 1
+                            '''
+                        } catch (err) {
+                            echo 'ROLLOUT FAILED. Automatically restoring the previous ReplicaSet.'
+
+                            bat '''
+                                "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" rollout undo deployment/university-lms
+                                if errorlevel 1 exit /b 1
+
+                                "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" rollout status deployment/university-lms --timeout=120s
+                                if errorlevel 1 exit /b 1
+
+                                "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" get pods
+                                "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" get services
+                            '''
+
+                            error('New release failed. Rollback completed; pipeline marked failed to record the failed release.')
+                        }
+
+                        bat '''
+                            "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" get deployments
+                            "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" get pods
+                            "%KUBECTL_EXE%" --kubeconfig "%KUBECONFIG_FILE%" get services
+                        '''
+                    }
+                }
             }
         }
     }
 
     post {
         success {
-            echo 'SUCCESS: University Learning Portal pipeline completed.'
-            echo 'Open http://localhost:30080 to check the application.'
+            echo 'SUCCESS: The release was built, tested, published and deployed.'
         }
         failure {
-            echo 'FAILED: Open Console Output and check the first failed stage.'
+            echo 'PIPELINE FAILED: Check the first error in Console Output. If deployment failed, inspect the rollback messages.'
         }
     }
 }
