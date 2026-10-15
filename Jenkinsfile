@@ -2,43 +2,48 @@
 pipeline {
     agent any
 
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
     environment {
-        DOCKER_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
-        KUBECTL_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
         IMAGE_NAME = 'balaji00002/university-lms'
-        IMAGE_TAG = 'v1'
+        IMAGE_TAG  = 'v1'
+        KUBECTL    = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
     }
 
     stages {
-        stage('Clone Code') {
+        stage('Checkout Code') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/Joshitha09-josh/University-Learning-Portal.git'
+                checkout scm
+
+                bat '''
+                    echo Checking project files...
+                    if not exist index.html exit /b 1
+                    if not exist Dockerfile exit /b 1
+                    if not exist deployment.yaml exit /b 1
+                    echo All required files are present.
+                '''
             }
         }
 
-        stage('Check Project Files') {
+        stage('Check Docker') {
             steps {
-                bat 'if not exist index.html exit /b 1'
-                bat 'if not exist Dockerfile exit /b 1'
-                bat 'if not exist deployment.yaml exit /b 1'
-                echo 'All project files are present.'
-            }
-        }
-
-        stage('Check Docker and Kubernetes') {
-            steps {
-                bat '"%DOCKER_EXE%" --version'
-                bat '"%DOCKER_EXE%" info'
-                bat '"%KUBECTL_EXE%" version --client'
-                bat '"%KUBECTL_EXE%" config current-context'
+                bat '''
+                    docker --version
+                    docker info
+                '''
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                bat '"%DOCKER_EXE%" build -t %IMAGE_NAME%:%IMAGE_TAG% .'
-                bat '"%DOCKER_EXE%" image inspect %IMAGE_NAME%:%IMAGE_TAG%'
+                bat '''
+                    docker build -t %IMAGE_NAME%:%IMAGE_TAG% .
+                    if errorlevel 1 exit /b 1
+                    docker image inspect %IMAGE_NAME%:%IMAGE_TAG%
+                '''
             }
         }
 
@@ -46,19 +51,49 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_TOKEN'
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USERNAME',
+                        passwordVariable: 'DOCKERHUB_PASSWORD'
                     )
                 ]) {
                     bat '''
-                        @echo off
-                        setlocal
-                        echo %DOCKER_TOKEN% | "%DOCKER_EXE%" login --username "%DOCKER_USER%" --password-stdin
+                        echo Logging in to Docker Hub...
+                        echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
                         if errorlevel 1 exit /b 1
-                        "%DOCKER_EXE%" push %IMAGE_NAME%:%IMAGE_TAG%
+
+                        docker push %IMAGE_NAME%:%IMAGE_TAG%
                         if errorlevel 1 exit /b 1
-                        "%DOCKER_EXE%" logout
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Check Kubernetes') {
+            steps {
+                bat '''
+                    if not exist "%KUBECTL%" (
+                        echo ERROR: kubectl.exe was not found.
+                        exit /b 1
+                    )
+
+                    "%KUBECTL%" version --client
+                '''
+
+                withCredentials([
+                    file(
+                        credentialsId: 'kubeconfig-new',
+                        variable: 'KUBECONFIG_FILE'
+                    )
+                ]) {
+                    bat '''
+                        set "KUBECONFIG=%KUBECONFIG_FILE%"
+                        "%KUBECTL%" config current-context
+                        if errorlevel 1 exit /b 1
+
+                        "%KUBECTL%" get nodes
+                        if errorlevel 1 exit /b 1
                     '''
                 }
             }
@@ -68,19 +103,22 @@ pipeline {
             steps {
                 withCredentials([
                     file(
-                        credentialsId: 'kubeconfig',
+                        credentialsId: 'kubeconfig-new',
                         variable: 'KUBECONFIG_FILE'
                     )
                 ]) {
                     bat '''
-                        @echo off
                         set "KUBECONFIG=%KUBECONFIG_FILE%"
-                        "%KUBECTL_EXE%" apply -f deployment.yaml
+
+                        "%KUBECTL%" apply -f deployment.yaml
                         if errorlevel 1 exit /b 1
-                        "%KUBECTL_EXE%" rollout status deployment/university-lms --timeout=120s
+
+                        "%KUBECTL%" rollout status deployment/university-lms --timeout=120s
                         if errorlevel 1 exit /b 1
-                        "%KUBECTL_EXE%" get pods
-                        "%KUBECTL_EXE%" get services
+
+                        "%KUBECTL%" get deployments
+                        "%KUBECTL%" get pods
+                        "%KUBECTL%" get services
                     '''
                 }
             }
@@ -89,11 +127,14 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: Docker image pushed and Kubernetes deployment completed.'
+            echo 'SUCCESS: Image built and pushed; Kubernetes deployment completed.'
+            echo 'Check the service at http://localhost:30080'
         }
+
         failure {
-            echo 'FAILED: Check Console Output for the first error.'
+            echo 'FAILED: Open Console Output and find the first failing stage.'
         }
+
         always {
             echo 'University Learning Portal pipeline finished.'
         }
