@@ -8,9 +8,10 @@ pipeline {
     }
 
     environment {
+        DOCKER = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+        KUBECTL = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
         IMAGE_NAME = 'balaji00002/university-lms'
-        IMAGE_TAG  = 'v1'
-        KUBECTL    = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
+        IMAGE_TAG = 'v1'
     }
 
     stages {
@@ -31,8 +32,11 @@ pipeline {
         stage('Check Docker') {
             steps {
                 bat '''
-                    docker --version
-                    docker info
+                    "%DOCKER%" --version
+                    if errorlevel 1 exit /b 1
+
+                    "%DOCKER%" info
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -40,9 +44,11 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
-                    docker build -t %IMAGE_NAME%:%IMAGE_TAG% .
+                    "%DOCKER%" build -t %IMAGE_NAME%:%IMAGE_TAG% .
                     if errorlevel 1 exit /b 1
-                    docker image inspect %IMAGE_NAME%:%IMAGE_TAG%
+
+                    "%DOCKER%" image inspect %IMAGE_NAME%:%IMAGE_TAG%
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -58,13 +64,16 @@ pipeline {
                 ]) {
                     bat '''
                         echo Logging in to Docker Hub...
-                        echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
+                        "%DOCKER%" login -u "%DOCKERHUB_USERNAME%" --password-stdin < nul
+                    '''
+                    bat '''
+                        echo %DOCKERHUB_PASSWORD% | "%DOCKER%" login -u "%DOCKERHUB_USERNAME%" --password-stdin
                         if errorlevel 1 exit /b 1
 
-                        docker push %IMAGE_NAME%:%IMAGE_TAG%
+                        "%DOCKER%" push %IMAGE_NAME%:%IMAGE_TAG%
                         if errorlevel 1 exit /b 1
 
-                        docker logout
+                        "%DOCKER%" logout
                     '''
                 }
             }
@@ -79,6 +88,7 @@ pipeline {
                     )
 
                     "%KUBECTL%" version --client
+                    if errorlevel 1 exit /b 1
                 '''
 
                 withCredentials([
@@ -89,6 +99,7 @@ pipeline {
                 ]) {
                     bat '''
                         set "KUBECONFIG=%KUBECONFIG_FILE%"
+
                         "%KUBECTL%" config current-context
                         if errorlevel 1 exit /b 1
 
@@ -127,12 +138,12 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: Image built and pushed; Kubernetes deployment completed.'
-            echo 'Check the service at http://localhost:30080'
+            echo 'SUCCESS: Docker image pushed and Kubernetes deployment completed.'
+            echo 'Portal URL: http://localhost:30080'
         }
 
         failure {
-            echo 'FAILED: Open Console Output and find the first failing stage.'
+            echo 'FAILED: Check the first failing stage in Console Output.'
         }
 
         always {
