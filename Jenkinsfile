@@ -4,6 +4,7 @@ pipeline {
 
     environment {
         DOCKER_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+        KUBECTL_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\kubectl.exe'
         IMAGE_NAME = 'balaji00002/university-lms'
         IMAGE_TAG = 'v1'
     }
@@ -21,14 +22,16 @@ pipeline {
                 bat 'if not exist index.html exit /b 1'
                 bat 'if not exist Dockerfile exit /b 1'
                 bat 'if not exist deployment.yaml exit /b 1'
-                echo 'All required project files are present.'
+                echo 'All project files are present.'
             }
         }
 
-        stage('Check Docker') {
+        stage('Check Docker and Kubernetes') {
             steps {
                 bat '"%DOCKER_EXE%" --version'
                 bat '"%DOCKER_EXE%" info'
+                bat '"%KUBECTL_EXE%" version --client'
+                bat '"%KUBECTL_EXE%" config current-context'
             }
         }
 
@@ -69,12 +72,16 @@ pipeline {
                         variable: 'KUBECONFIG_FILE'
                     )
                 ]) {
-                    withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
-                        bat 'kubectl apply -f deployment.yaml'
-                        bat 'kubectl rollout status deployment/university-lms --timeout=120s'
-                        bat 'kubectl get pods'
-                        bat 'kubectl get services'
-                    }
+                    bat '''
+                        @echo off
+                        set "KUBECONFIG=%KUBECONFIG_FILE%"
+                        "%KUBECTL_EXE%" apply -f deployment.yaml
+                        if errorlevel 1 exit /b 1
+                        "%KUBECTL_EXE%" rollout status deployment/university-lms --timeout=120s
+                        if errorlevel 1 exit /b 1
+                        "%KUBECTL_EXE%" get pods
+                        "%KUBECTL_EXE%" get services
+                    '''
                 }
             }
         }
@@ -82,10 +89,10 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: Image pushed and Kubernetes deployment completed.'
+            echo 'SUCCESS: Docker image pushed and Kubernetes deployment completed.'
         }
         failure {
-            echo 'FAILED: Review Console Output for the exact failing stage.'
+            echo 'FAILED: Check Console Output for the first error.'
         }
         always {
             echo 'University Learning Portal pipeline finished.'
