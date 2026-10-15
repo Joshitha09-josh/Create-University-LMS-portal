@@ -2,6 +2,12 @@
 pipeline {
     agent any
 
+    environment {
+        DOCKER_EXE = 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+        IMAGE_NAME = 'balaji00002/university-lms'
+        IMAGE_TAG = 'v1'
+    }
+
     stages {
         stage('Clone Code') {
             steps {
@@ -21,18 +27,35 @@ pipeline {
 
         stage('Check Docker') {
             steps {
-                bat 'docker --version'
-                bat 'docker info'
+                bat '"%DOCKER_EXE%" --version'
+                bat '"%DOCKER_EXE%" info'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                bat '"%DOCKER_EXE%" build -t %IMAGE_NAME%:%IMAGE_TAG% .'
+            }
+        }
+
+        stage('Test Docker Image') {
+            steps {
+                bat '"%DOCKER_EXE%" image inspect %IMAGE_NAME%:%IMAGE_TAG%'
             }
         }
     }
 
     post {
         success {
-            echo 'Project files and Docker checks completed successfully.'
+            echo 'SUCCESS: GitHub checkout, Docker checks, image build, and image validation completed.'
         }
+
         failure {
-            echo 'Pipeline failed. Check the Console Output for the exact error.'
+            echo 'FAILED: Check Console Output to identify the stage that failed.'
+        }
+
+        always {
+            echo 'University Learning Portal pipeline execution finished.'
         }
     }
 }
