@@ -1,0 +1,35 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>University Learning Portal</title>
+<style>
+body{font-family:Arial;margin:0;background:#f2f5fa;color:#243247}
+header{background:#163b70;color:white;padding:25px;text-align:center}
+nav{background:#102d54;padding:15px;text-align:center}
+nav a{color:white;margin:12px;text-decoration:none}
+main{padding:25px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+.card{background:white;padding:20px;border-radius:10px;box-shadow:0 2px 8px #ccc}
+h2,h3{color:#163b70}
+footer{background:#163b70;color:white;text-align:center;padding:15px}
+</style>
+</head>
+<body>
+<header><h1>University Learning Portal</h1><p>Learn | Explore | Achieve</p></header>
+<nav><a href="#courses">Courses</a><a href="#faculty">Faculty</a><a href="#resources">Resources</a><a href="#assignments">Assignments</a><a href="#exams">Exams</a></nav>
+<main>
+<h2>Welcome, Student!</h2>
+<p>Access your academic information in one place.</p>
+<div class="grid">
+<section class="card" id="courses"><h3>Courses</h3><ul><li>Java Programming</li><li>Database Management</li><li>Agile Development and DevOps</li></ul></section>
+<section class="card" id="faculty"><h3>Faculty Profiles</h3><p>Dr. Arun Kumar - Computer Science</p><p>Prof. Priya - Software Engineering</p></section>
+<section class="card" id="resources"><h3>Learning Resources</h3><ul><li>Lecture Notes</li><li>Programming Exercises</li><li>Lab Manuals</li></ul></section>
+<section class="card" id="assignments"><h3>Assignments</h3><p>DevOps CI/CD practical submission.</p><p>Java programming exercises.</p></section>
+<section class="card" id="exams"><h3>Examination Schedule</h3><p>Internal Assessment - Check official timetable.</p><p>Final Assessment - Check university announcements.</p></section>
+</div>
+</main>
+<footer>University Learning Portal</footer>
+</body>
+</html>

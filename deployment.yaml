@@ -1,0 +1,67 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: university-lms
+  labels:
+    app: university-lms
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+
+  selector:
+    matchLabels:
+      app: university-lms
+
+  template:
+    metadata:
+      labels:
+        app: university-lms
+
+    spec:
+      containers:
+        - name: lms
+          image: balaji00002/university-lms:v1
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 80
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: university-lms-service
+spec:
+  type: NodePort
+
+  selector:
+    app: university-lms
+
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30080
